@@ -1,0 +1,110 @@
+{
+  "anomaly_model": {
+    "model_type": "IsolationForest",
+    "version": "1.0.0",
+    "features": [
+      "patients_accessed_per_day",
+      "records_accessed_per_day",
+      "downloads_per_day",
+      "unique_patients",
+      "failed_authorizations",
+      "emergency_access_count",
+      "after_hours_access",
+      "access_frequency_per_hour"
+    ],
+    "contamination": 0.15,
+    "n_samples": 600,
+    "roc_auc": 1.0,
+    "precision": 0.9556,
+    "recall": 1.0,
+    "f1_score": 0.9773,
+    "confusion_matrix": [
+      [
+        510,
+        4
+      ],
+      [
+        0,
+        86
+      ]
+    ],
+    "safety_wording": "Potentially anomalous activity detected. Review suggested; does not accuse or auto-block users."
+  },
+  "transfer_complexity_model": {
+    "model_type": "RandomForestClassifier",
+    "baseline_type": "DecisionTreeClassifier",
+    "version": "1.0.0",
+    "features": [
+      "age",
+      "active_condition_count",
+      "medication_count",
+      "recent_abnormal_result_count",
+      "pending_investigation_count",
+      "recent_procedure",
+      "data_quality_issue_count",
+      "transfer_priority"
+    ],
+    "classes": [
+      "LOW",
+      "MODERATE",
+      "HIGH"
+    ],
+    "n_train_samples": 640,
+    "n_test_samples": 160,
+    "proposed_metrics": {
+      "accuracy": 0.9313,
+      "precision_macro": 0.9031,
+      "recall_macro": 0.8634,
+      "f1_macro": 0.8735,
+      "confusion_matrix": [
+        [
+          14,
+          7,
+          0
+        ],
+        [
+          1,
+          33,
+          1
+        ],
+        [
+          0,
+          2,
+          102
+        ]
+      ]
+    },
+    "baseline_metrics": {
+      "accuracy": 0.925,
+      "precision_macro": 0.8639,
+      "recall_macro": 0.873,
+      "f1_macro": 0.8683
+    },
+    "feature_importances": {
+      "age": 0.0427,
+      "active_condition_count": 0.1783,
+      "medication_count": 0.2058,
+      "recent_abnormal_result_count": 0.1578,
+      "pending_investigation_count": 0.0748,
+      "recent_procedure": 0.0258,
+      "data_quality_issue_count": 0.0279,
+      "transfer_priority": 0.287
+    },
+    "clinical_disclaimer": "Research prototype \u2014 workflow complexity assistance only. NOT a clinical diagnostic or mortality risk score."
+  },
+  "semantic_embedding_model": {
+    "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "provider": "Hugging Face",
+    "architecture": "BertModel + Mean Pooling + Unit Normalization",
+    "embedding_dimension": 384,
+    "max_sequence_length": 256,
+    "parameters": "22.7M",
+    "primary_tasks": [
+      "Grounded RAG Clinical Record Retrieval",
+      "Semantic Transfer Relevance Scoring",
+      "Dense Clinical Vector Similarity Search"
+    ],
+    "citation": "Reimers, N., & Gurevych, I. (2019). Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks.",
+    "safety_wording": "Decision-support retrieval and scoring only. Clinician makes final determination of record inclusion."
+  }
+}
