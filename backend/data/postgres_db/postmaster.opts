@@ -1,0 +1,1 @@
+C:/Users/Admin/Desktop/Hospital/backend/node_modules/@embedded-postgres/windows-x64/native/bin/postgres.exe "-D" "C:\Users\Admin\Desktop\Hospital\backend\data\postgres_db" "-p" "5433"

@@ -33,13 +33,14 @@ async function cleanDatabase() {
           medications,
           tests,
           visits,
+          doctor_patients,
           patients
         CASCADE;
       `);
 
-      // Remove synthetic demo patients from users table (keep doctor/admin staff)
+      // Remove all users so new user can register fresh accounts
       await client.query(`
-        DELETE FROM users WHERE role = 'PATIENT';
+        DELETE FROM users;
       `);
 
       await client.query('COMMIT');

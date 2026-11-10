@@ -1,4 +1,4 @@
-const { query, memoryStore } = require('../config/db');
+const { query } = require('../config/db');
 const { recordAuditLog, extractReqMeta } = require('../utils/auditLogger');
 const { authorizePatientAccess } = require('../services/clinicalAccessPolicy');
 const { loadPatientAggregate, projectByCategories, ALL_CATEGORY_LABELS } = require('../services/patientAggregateService');
@@ -167,26 +167,47 @@ const searchPatientsForDoctor = async (req, res) => {
       });
     }
 
-    // Search across patients store
-    const allPatients = memoryStore.patients || [];
-    const matches = allPatients.filter(p => {
-      const nameMatch = p.name && p.name.toLowerCase().includes(q);
-      const idMatch = p.unique_health_id && p.unique_health_id.toLowerCase().includes(q);
-      const phoneMatch = p.phone && p.phone.includes(q);
-      return nameMatch || idMatch || phoneMatch;
-    });
+    // Search the patient master index, attaching this doctor's most relevant association.
+    // Association precedence: ACTIVE/ACCEPTED, then PENDING, then most recent of the rest.
+    const searchSql = `
+      SELECT * FROM (
+        SELECT DISTINCT ON (p.id)
+          p.id, p.name, p.unique_health_id, p.dob, p.gender, p.blood_group,
+          dp.id AS association_id, dp.status AS association_status
+        FROM patients p
+        LEFT JOIN doctor_patients dp
+          ON dp.patient_id = p.id AND dp.doctor_id = $2
+        WHERE LOWER(p.name) LIKE $1
+           OR LOWER(p.unique_health_id) LIKE $1
+           OR COALESCE(p.phone, '') LIKE $1
+        ORDER BY
+          p.id,
+          CASE
+            WHEN dp.status IN ('ACTIVE', 'ACCEPTED') THEN 0
+            WHEN dp.status = 'PENDING' THEN 1
+            ELSE 2
+          END,
+          dp.created_at DESC NULLS LAST
+      ) matches
+      ORDER BY name
+      LIMIT 50
+    `;
+    const searchRes = await query(searchSql, [`%${q}%`, req.user.id]);
 
-    // Check association status with the calling doctor
-    const results = matches.map(patient => {
-      const existingAssoc = (memoryStore.doctor_patients || []).find(
-        dp => dp.doctor_id === req.user.id && dp.patient_id === patient.id
-      );
+    const results = (searchRes.rows || []).map(patient => {
+      const existingAssoc = patient.association_id
+        ? { id: patient.association_id, status: patient.association_status }
+        : null;
 
-      // Mask DOB for privacy (e.g. ****-**-14)
+      // Mask DOB for privacy, exposing only the day of month (e.g. ****-**-14).
+      // pg returns DATE columns as Date objects, so derive the day explicitly
+      // rather than string-splitting, which would otherwise leak the full date.
       let dobMasked = '****-**-**';
       if (patient.dob) {
-        const parts = String(patient.dob).split('-');
-        dobMasked = `****-**-${parts[2] || parts[parts.length - 1] || '**'}`;
+        const dobDate = patient.dob instanceof Date ? patient.dob : new Date(patient.dob);
+        if (!Number.isNaN(dobDate.getTime())) {
+          dobMasked = `****-**-${String(dobDate.getDate()).padStart(2, '0')}`;
+        }
       }
 
       const isAssociated = existingAssoc && ['ACTIVE', 'ACCEPTED'].includes(existingAssoc.status);
@@ -239,15 +260,28 @@ const requestDoctorPatientAssociation = async (req, res) => {
     const department = boundedText(req.body.department || req.user.specialty || 'General Medicine', 'department', { max: 100 });
     const treatmentReason = boundedText(req.body.treatment_reason || req.body.purpose || 'Specialist Consultation & Treatment', 'treatment_reason', { max: 500 });
 
-    const patient = (memoryStore.patients || []).find(p => p.id === patientId);
+    const patientRes = await query('SELECT id, name, user_id FROM patients WHERE id = $1', [patientId]);
+    const patient = patientRes.rows[0];
     if (!patient) {
       return res.status(404).json({ success: false, message: 'Registered patient not found.' });
     }
 
-    // Check existing association
-    const existing = (memoryStore.doctor_patients || []).find(
-      dp => dp.doctor_id === req.user.id && dp.patient_id === patientId
+    // Check existing association, preferring any that would block a new request
+    const existingRes = await query(
+      `SELECT id, status
+         FROM doctor_patients
+        WHERE doctor_id = $1 AND patient_id = $2
+        ORDER BY
+          CASE
+            WHEN status IN ('ACTIVE', 'ACCEPTED') THEN 0
+            WHEN status = 'PENDING' THEN 1
+            ELSE 2
+          END,
+          created_at DESC
+        LIMIT 1`,
+      [req.user.id, patientId]
     );
+    const existing = existingRes.rows[0];
 
     if (existing) {
       if (['ACTIVE', 'ACCEPTED'].includes(existing.status)) {
@@ -266,12 +300,12 @@ const requestDoctorPatientAssociation = async (req, res) => {
     }
 
     const hospitalId = req.user.hospital_id || 1;
-    const hospital = (memoryStore.hospitals || []).find(h => h.id === hospitalId);
-    const hospitalName = hospital ? hospital.name : 'Hospital';
+    const hospitalRes = await query('SELECT name FROM hospitals WHERE id = $1', [hospitalId]);
+    const hospitalName = hospitalRes.rows[0]?.name || 'Hospital';
 
     const insertSql = `
-      INSERT INTO doctor_patients (doctor_id, patient_id, hospital_id, status, department, treatment_reason, purpose, treatment_start_date, requested_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO doctor_patients (doctor_id, patient_id, hospital_id, status, department, treatment_reason, treatment_start_date, requested_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `;
     const result = await query(insertSql, [
@@ -280,7 +314,6 @@ const requestDoctorPatientAssociation = async (req, res) => {
       hospitalId,
       'PENDING',
       department,
-      treatmentReason,
       treatmentReason,
       new Date(),
       new Date()
@@ -445,7 +478,7 @@ const respondAssociationRequest = async (req, res) => {
         assoc.doctor_id,
         `Patient Association ${action === 'ACCEPT' ? 'Accepted' : 'Declined'}`,
         `Patient ${patient.name} has ${action === 'ACCEPT' ? 'accepted' : 'declined'} your treatment association request for ${assoc.department}.`,
-        action === 'ACCEPT' ? 'SUCCESS' : 'WARNING',
+        'ASSOCIATION_UPDATE',
         assocId
       ]
     );
@@ -508,7 +541,7 @@ const revokeDoctorAssociation = async (req, res) => {
         assoc.doctor_id,
         'Patient Treatment Association Revoked',
         `Patient ${patient.name} has revoked their treatment association for ${assoc.department}.`,
-        'WARNING',
+        'ASSOCIATION_UPDATE',
         assocId
       ]
     );
@@ -662,9 +695,9 @@ const createPatient = async (req, res) => {
     
     // Automatically create active doctor_patients association for attending doctor
     await query(
-      `INSERT INTO doctor_patients (doctor_id, patient_id, hospital_id, status, department, treatment_reason, purpose, treatment_start_date, requested_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [req.user.id, patient.id, req.user.hospital_id || 1, 'ACTIVE', req.user.specialty || 'General Care', diagnosis, 'Inpatient Admission', new Date(), new Date()]
+      `INSERT INTO doctor_patients (doctor_id, patient_id, hospital_id, status, department, treatment_reason, treatment_start_date, requested_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [req.user.id, patient.id, req.user.hospital_id || 1, 'ACTIVE', req.user.specialty || 'General Care', diagnosis, new Date(), new Date()]
     );
 
     const tests = Array.isArray(req.body.tests) ? req.body.tests.slice(0, 50) : [];

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     hospital_id INTEGER REFERENCES hospitals(id) ON DELETE SET NULL,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(100) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL CHECK (role IN ('DOCTOR', 'HOSPITAL_ADMIN', 'SYSTEM_ADMIN', 'PATIENT')),
     specialty VARCHAR(100),
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
 
 -- 3. PATIENTS (Master Patient Index / ABHA Health ID)
 CREATE TABLE IF NOT EXISTS patients (
@@ -200,11 +202,18 @@ CREATE TABLE IF NOT EXISTS notifications (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
-    type VARCHAR(50) NOT NULL DEFAULT 'INFO' CHECK (type IN ('CONSENT_REQUEST', 'CONSENT_UPDATE', 'TRANSFER_UPDATE', 'EMERGENCY_ALERT', 'SECURITY_ALERT', 'INFO')),
+    type VARCHAR(50) NOT NULL DEFAULT 'INFO' CHECK (type IN ('CONSENT_REQUEST', 'CONSENT_UPDATE', 'TRANSFER_UPDATE', 'EMERGENCY_ALERT', 'SECURITY_ALERT', 'DOCTOR_REQUEST', 'ASSOCIATION_UPDATE', 'INFO')),
     related_id INTEGER,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Widen notifications.type to cover the doctor-patient association workflow.
+-- CREATE TABLE IF NOT EXISTS leaves pre-existing tables untouched, so the
+-- constraint is rebuilt explicitly for databases created before these types existed.
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+    CHECK (type IN ('CONSENT_REQUEST', 'CONSENT_UPDATE', 'TRANSFER_UPDATE', 'EMERGENCY_ALERT', 'SECURITY_ALERT', 'DOCTOR_REQUEST', 'ASSOCIATION_UPDATE', 'INFO'));
 
 -- 14. AI HANDOVER SUMMARIES (human-reviewed decision support)
 CREATE TABLE IF NOT EXISTS ai_handover_summaries (

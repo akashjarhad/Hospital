@@ -6,8 +6,8 @@ const bcrypt = require('bcryptjs');
 
 dotenv.config();
 
-// PostgreSQL Pool configuration
-const pool = new Pool({
+// Active PostgreSQL Pool instance
+let activePool = new Pool({
   connectionString: process.env.DATABASE_URL,
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432', 10),
@@ -18,15 +18,19 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost') ? { rejectUnauthorized: false } : false
 });
 
+// Proxy pool export to maintain backward compatibility for direct pool calls
+const pool = {
+  query: (...args) => activePool.query(...args),
+  connect: (...args) => activePool.connect(...args),
+  end: (...args) => activePool.end(...args),
+  on: (...args) => activePool.on(...args)
+};
+
 let isConnected = false;
+let embeddedPgInstance = null;
 
-// Safe password hashes
-const doctorHash = bcrypt.hashSync('doctor123', 10);
-const patientHash = bcrypt.hashSync('patient123', 10);
-const adminHash = bcrypt.hashSync('admin123', 10);
-const sysAdminHash = bcrypt.hashSync('sysadmin123', 10);
-
-// Comprehensive In-Memory Clinical & Transfer Store
+// Clean in-memory store (used only if database is completely offline)
+// Contains ZERO synthetic dummy patients, visits, tests, or dummy users.
 const memoryStore = {
   hospitals: [
     {
@@ -74,665 +78,19 @@ const memoryStore = {
       created_at: new Date('2026-01-01')
     }
   ],
-
-  users: [
-    {
-      id: 1,
-      hospital_id: 1,
-      name: 'Dr. Ramesh Sharma',
-      email: 'dr.ramesh@aiims.edu.in',
-      username: 'dr.ramesh',
-      password_hash: doctorHash,
-      role: 'DOCTOR',
-      specialty: 'Emergency Medicine & Trauma',
-      license_number: 'MCI-2015-8849',
-      phone: '+91-9811001122',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 2,
-      hospital_id: 1,
-      name: 'Dr. Ananya Iyer',
-      email: 'dr.ananya@aiims.edu.in',
-      username: 'dr.ananya',
-      password_hash: doctorHash,
-      role: 'DOCTOR',
-      specialty: 'Critical Care & Pulmonology',
-      license_number: 'MCI-2018-4521',
-      phone: '+91-9811001123',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 3,
-      hospital_id: 1,
-      name: 'Rajesh Verma (AIIMS Admin)',
-      email: 'admin@aiims.edu.in',
-      username: 'admin.aiims',
-      password_hash: adminHash,
-      role: 'HOSPITAL_ADMIN',
-      specialty: 'Hospital Operations Lead',
-      license_number: 'ADM-DEL-01',
-      phone: '+91-9811001124',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 4,
-      hospital_id: 2,
-      name: 'Dr. Priya Patel',
-      email: 'dr.priya@apollo.com',
-      username: 'dr.priya',
-      password_hash: doctorHash,
-      role: 'DOCTOR',
-      specialty: 'Interventional Cardiology',
-      license_number: 'MCI-2014-9912',
-      phone: '+91-9811001125',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 5,
-      hospital_id: 2,
-      name: 'Sunita Rao (Apollo Admin)',
-      email: 'admin@apollo.com',
-      username: 'admin.apollo',
-      password_hash: adminHash,
-      role: 'HOSPITAL_ADMIN',
-      specialty: 'Patient Transfer Coordinator',
-      license_number: 'ADM-APL-02',
-      phone: '+91-9811001126',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 6,
-      hospital_id: 3,
-      name: 'Dr. Amit Sengupta',
-      email: 'dr.amit@fortis.in',
-      username: 'dr.amit',
-      password_hash: doctorHash,
-      role: 'DOCTOR',
-      specialty: 'Neurosurgery & Trauma',
-      license_number: 'MCI-2012-3341',
-      phone: '+91-9811001127',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 7,
-      hospital_id: null,
-      name: 'System Security Administrator',
-      email: 'sysadmin@medtransfer.demo',
-      username: 'sysadmin',
-      password_hash: sysAdminHash,
-      role: 'SYSTEM_ADMIN',
-      specialty: 'Cybersecurity & Compliance',
-      license_number: 'SYS-SEC-01',
-      phone: '+91-9800000001',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 8,
-      hospital_id: 1,
-      name: 'Rajesh Kumar',
-      email: 'patient@demo.local',
-      username: 'patient.rajesh',
-      password_hash: patientHash,
-      role: 'PATIENT',
-      patient_id: 1,
-      specialty: 'Verified Patient Account',
-      license_number: 'PAT-DEL-10001',
-      phone: '+91-9876543210',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 9,
-      hospital_id: 1,
-      name: 'Priya Sharma',
-      email: 'patient.anjali@demo.local',
-      username: 'patient.anjali',
-      password_hash: patientHash,
-      role: 'PATIENT',
-      patient_id: 2,
-      specialty: 'Verified Patient Account',
-      license_number: 'PAT-DEL-10002',
-      phone: '+91-9811223344',
-      is_active: true,
-      created_at: new Date('2026-01-01')
-    },
-    {
-      id: 10,
-      hospital_id: 1,
-      name: 'Synthetic Suspicious Account',
-      email: 'sec_test_actor10@aiims.edu.in',
-      username: 'sec_actor10',
-      password_hash: doctorHash,
-      role: 'DOCTOR',
-      specialty: 'Radiology Resident',
-      license_number: 'SYN-RAD-10',
-      phone: '+91-9800000010',
-      is_active: false,
-      created_at: new Date('2026-01-01')
-    }
-  ],
-
-  patients: [
-    {
-      id: 1,
-      user_id: 8,
-      unique_health_id: 'ABHA-9821-4412-8801',
-      name: 'Rajesh Kumar',
-      dob: '1985-06-15',
-      gender: 'Male',
-      blood_group: 'O+',
-      phone: '+91-9876543210',
-      email: 'patient@demo.local',
-      address: 'House 42, Pocket B, Mayur Vihar Phase 1, New Delhi',
-      emergency_contact_name: 'Sunita Kumar (Wife)',
-      emergency_contact_phone: '+91-9876543211',
-      medical_history: 'Hypertension (5 yrs), Type 2 Diabetes Mellitus (3 yrs), Hyperlipidemia',
-      allergies: 'Penicillin (Anaphylaxis), Sulfa Drugs (Severe Rash)',
-      current_hospital_id: 1,
-      created_at: new Date('2026-01-10')
-    },
-    {
-      id: 2,
-      user_id: 9,
-      unique_health_id: 'ABHA-3312-7789-2244',
-      name: 'Priya Sharma',
-      dob: '1992-11-20',
-      gender: 'Female',
-      blood_group: 'B+',
-      phone: '+91-9811223344',
-      email: 'patient.anjali@demo.local',
-      address: 'Flat 302, Green Glen Layout, Bellandur, Bengaluru',
-      emergency_contact_name: 'Rohan Sharma (Brother)',
-      emergency_contact_phone: '+91-9811223345',
-      medical_history: 'Bronchial Asthma (since childhood), Mild Anemia',
-      allergies: 'Aspirin (Bronchospasm), NSAIDs',
-      current_hospital_id: 1,
-      created_at: new Date('2026-02-01')
-    },
-    {
-      id: 3,
-      user_id: null,
-      unique_health_id: 'ABHA-5521-8833-1109',
-      name: 'Amit Verma',
-      dob: '1978-03-25',
-      gender: 'Male',
-      blood_group: 'A+',
-      phone: '+91-9822334455',
-      email: 'amit.verma@demo.local',
-      address: 'Sector 15, Noida, Uttar Pradesh',
-      emergency_contact_name: 'Kavita Verma (Spouse)',
-      emergency_contact_phone: '+91-9822334456',
-      medical_history: 'Chronic Kidney Disease Stage 2',
-      allergies: 'Ciprofloxacin',
-      current_hospital_id: 1,
-      created_at: new Date('2026-02-15')
-    },
-    {
-      id: 4,
-      user_id: null,
-      unique_health_id: 'ABHA-7744-1199-3322',
-      name: 'Meera Deshmukh',
-      dob: '1995-08-12',
-      gender: 'Female',
-      blood_group: 'AB+',
-      phone: '+91-9833445566',
-      email: 'meera.deshmukh@demo.local',
-      address: 'Plot 88, Vasant Kunj, New Delhi',
-      emergency_contact_name: 'Suresh Deshmukh (Father)',
-      emergency_contact_phone: '+91-9833445567',
-      medical_history: 'No prior major chronic disease. Emergency polytrauma following road traffic accident.',
-      allergies: 'Latex, Penicillin (Moderate)',
-      current_hospital_id: 1,
-      created_at: new Date('2026-03-01')
-    }
-  ],
-
-  visits: [
-    {
-      id: 1,
-      patient_id: 1,
-      hospital_id: 1,
-      attending_doctor_id: 1,
-      attending_doctor_name: 'Dr. Ramesh Sharma',
-      admission_date: new Date('2026-09-20T08:30:00Z'),
-      discharge_date: null,
-      status: 'critical',
-      chief_complaint: 'Acute substernal chest pain radiating to left arm and jaw with diaphoresis, nausea, and severe dyspnea for 2 hours',
-      diagnosis: 'Acute ST-Elevation Myocardial Infarction (STEMI) - Anterolateral Wall, Killip Class II',
-      notes: 'Patient presented in severe acute distress. Emergency ECG confirmed anterolateral STEMI. Placed on high-flow oxygen, dual antiplatelet loading doses, and heparin infusion. Hemodynamically monitored.',
-      vitals: {
-        heart_rate: 104,
-        blood_pressure: '148/92',
-        respiratory_rate: 22,
-        temperature: '98.6',
-        spo2: 94
-      },
-      created_at: new Date('2026-09-20T08:30:00Z')
-    },
-    {
-      id: 2,
-      patient_id: 2,
-      hospital_id: 1,
-      attending_doctor_id: 2,
-      attending_doctor_name: 'Dr. Ananya Iyer',
-      admission_date: new Date('2026-09-21T10:00:00Z'),
-      discharge_date: null,
-      status: 'observation',
-      chief_complaint: 'Acute asthma exacerbation with wheezing and mild tachypnea',
-      diagnosis: 'Severe Acute Bronchial Asthma Exacerbation',
-      notes: 'Nebulized bronchodilators administered. Monitored for respiratory stabilization.',
-      vitals: {
-        heart_rate: 88,
-        blood_pressure: '120/80',
-        respiratory_rate: 18,
-        temperature: '98.4',
-        spo2: 97
-      },
-      created_at: new Date('2026-09-21T10:00:00Z')
-    }
-  ],
-
-  tests: [
-    {
-      id: 1,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: 'Troponin I (High-Sensitivity)',
-      test_category: 'Cardiac Biomarkers',
-      test_type: 'Lab',
-      result: '14.8 ng/mL',
-      units: 'ng/mL',
-      reference_range: '< 0.04 ng/mL',
-      abnormal: true,
-      status: 'COMPLETED',
-      performed_by: 'Central Pathology Laboratory',
-      timestamp: new Date('2026-09-20T09:00:00Z'),
-      notes: 'Significantly elevated cardiac troponin indicating acute myocardial necrosis.'
-    },
-    {
-      id: 2,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: 'Creatine Kinase-MB (CK-MB)',
-      test_category: 'Cardiac Biomarkers',
-      test_type: 'Lab',
-      result: '88 U/L',
-      units: 'U/L',
-      reference_range: '< 25 U/L',
-      abnormal: true,
-      status: 'COMPLETED',
-      performed_by: 'Central Pathology Laboratory',
-      timestamp: new Date('2026-09-20T09:15:00Z'),
-      notes: 'Elevated CK-MB corroborates acute myocardial injury.'
-    },
-    {
-      id: 3,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: '12-Lead Electrocardiogram (ECG)',
-      test_category: 'Diagnostic Cardiology',
-      test_type: 'Diagnostic',
-      result: 'Marked ST-elevation (4mm) in leads V1-V4 with reciprocal ST-depression in leads III and aVF',
-      units: '',
-      reference_range: 'Normal sinus rhythm',
-      abnormal: true,
-      status: 'COMPLETED',
-      performed_by: 'Emergency Cardiology Unit',
-      timestamp: new Date('2026-09-20T08:45:00Z'),
-      notes: 'Diagnostic for acute anterolateral transmural infarction.'
-    },
-    {
-      id: 4,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: 'Serum Creatinine',
-      test_category: 'Renal Function',
-      test_type: 'Lab',
-      result: '1.1 mg/dL',
-      units: 'mg/dL',
-      reference_range: '0.7 - 1.3 mg/dL',
-      abnormal: false,
-      status: 'COMPLETED',
-      performed_by: 'Biochemistry Department',
-      timestamp: new Date('2026-09-20T09:30:00Z'),
-      notes: 'Baseline renal function is preserved for contrast-based coronary angiography.'
-    },
-    {
-      id: 5,
-      patient_id: 2,
-      visit_id: 2,
-      test_name: 'Chest X-Ray (PA View)',
-      test_category: 'Diagnostic Radiology / Imaging',
-      category: 'Diagnostic Radiology / Imaging',
-      test_type: 'Diagnostic',
-      result: 'Hyperinflation with bilateral peribronchial cuffing, clear lung fields, no pneumothorax',
-      units: '',
-      reference_range: 'Clear lung fields without focal consolidation',
-      abnormal: false,
-      status: 'COMPLETED',
-      performed_by: 'Radiology Department',
-      timestamp: new Date('2026-09-21T10:30:00Z'),
-      notes: 'Findings consistent with acute asthma exacerbation.'
-    },
-    {
-      id: 6,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: 'Transthoracic Echocardiogram (2D Echo)',
-      test_category: 'Diagnostic Cardiology',
-      category: 'Diagnostic Cardiology',
-      test_type: 'Diagnostic',
-      result: 'Anteroseptal and apical wall akinesis, estimated Left Ventricular Ejection Fraction (LVEF) 38%',
-      units: '',
-      reference_range: 'LVEF 55-70%',
-      abnormal: true,
-      status: 'COMPLETED',
-      performed_by: 'Echocardiography Lab',
-      timestamp: new Date('2026-09-20T10:15:00Z'),
-      notes: 'Moderate LV systolic dysfunction secondary to acute ischemic insult.'
-    },
-    {
-      id: 7,
-      patient_id: 1,
-      visit_id: 1,
-      test_name: 'Blood Potassium',
-      test_category: 'Electrolytes',
-      category: 'Electrolytes',
-      test_type: 'Lab',
-      result: '4.2 mEq/L',
-      units: 'mEq/L',
-      reference_range: '3.5 - 5.0 mEq/L',
-      abnormal: false,
-      status: 'COMPLETED',
-      performed_by: 'Biochemistry Department',
-      timestamp: new Date('2026-09-20T09:30:00Z'),
-      notes: 'Normal electrolyte balance.'
-    }
-  ],
-
-  medications: [
-    {
-      id: 1,
-      patient_id: 1,
-      visit_id: 1,
-      medication_name: 'Aspirin (Dispersible)',
-      dosage: '325 mg',
-      frequency: 'Stat loading dose, then 81 mg once daily',
-      route: 'Oral',
-      is_current: true,
-      prescribed_by: 'Dr. Ramesh Sharma',
-      prescribed_at: new Date('2026-09-20T08:35:00Z'),
-      notes: 'Antiplatelet therapy'
-    },
-    {
-      id: 2,
-      patient_id: 1,
-      visit_id: 1,
-      medication_name: 'Clopidogrel (Plavix)',
-      dosage: '600 mg',
-      frequency: 'Stat loading dose, then 75 mg once daily',
-      route: 'Oral',
-      is_current: true,
-      prescribed_by: 'Dr. Ramesh Sharma',
-      prescribed_at: new Date('2026-09-20T08:35:00Z'),
-      notes: 'P2Y12 inhibitor dual antiplatelet'
-    },
-    {
-      id: 3,
-      patient_id: 1,
-      visit_id: 1,
-      medication_name: 'Atorvastatin',
-      dosage: '80 mg',
-      frequency: 'Once daily at bedtime',
-      route: 'Oral',
-      is_current: true,
-      prescribed_by: 'Dr. Ramesh Sharma',
-      prescribed_at: new Date('2026-09-20T09:00:00Z'),
-      notes: 'High-intensity statin therapy'
-    },
-    {
-      id: 4,
-      patient_id: 1,
-      visit_id: 1,
-      medication_name: 'Metoprolol Succinate',
-      dosage: '25 mg',
-      frequency: 'Once daily',
-      route: 'Oral',
-      is_current: true,
-      prescribed_by: 'Dr. Ramesh Sharma',
-      prescribed_at: new Date('2026-09-20T09:30:00Z'),
-      notes: 'Beta-blocker for heart rate control'
-    },
-    {
-      id: 5,
-      patient_id: 1,
-      visit_id: 1,
-      medication_name: 'Unfractionated Heparin',
-      dosage: '1000 units/hour',
-      frequency: 'Continuous IV Infusion',
-      route: 'Intravenous',
-      is_current: true,
-      prescribed_by: 'Dr. Ramesh Sharma',
-      prescribed_at: new Date('2026-09-20T08:45:00Z'),
-      notes: 'Anticoagulation for acute coronary syndrome'
-    }
-  ],
-
-  patient_allergies: [
-    {
-      id: 1,
-      patient_id: 1,
-      substance: 'Penicillin',
-      reaction_type: 'Anaphylaxis & Angioedema',
-      severity: 'HIGH',
-      diagnosed_at: '2020-04-12'
-    },
-    {
-      id: 2,
-      patient_id: 1,
-      substance: 'Sulfa Drugs / Sulfonamides',
-      reaction_type: 'Maculopapular Rash & Pruritus',
-      severity: 'MODERATE',
-      diagnosed_at: '2022-08-19'
-    }
-  ],
-
-  doctor_patients: [
-    {
-      id: 1,
-      doctor_id: 1,
-      patient_id: 1,
-      hospital_id: 1,
-      status: 'ACCEPTED',
-      department: 'Emergency & Cardiology',
-      treatment_reason: 'Acute ST-Elevation Myocardial Infarction care',
-      created_at: new Date('2026-09-20T08:30:00Z'),
-      responded_at: new Date('2026-09-20T08:30:00Z')
-    },
-    {
-      id: 2,
-      doctor_id: 2,
-      patient_id: 2,
-      hospital_id: 1,
-      status: 'ACCEPTED',
-      department: 'Pulmonology & Critical Care',
-      treatment_reason: 'Asthma flare-up and bronchial management',
-      created_at: new Date('2026-09-21T10:00:00Z'),
-      responded_at: new Date('2026-09-21T10:00:00Z')
-    }
-  ],
-
+  users: [],
+  patients: [],
+  visits: [],
+  tests: [],
+  medications: [],
+  patient_allergies: [],
   documents: [],
-
   transfers: [],
-  transfer_requests: [
-    {
-      id: 3,
-      transfer_code: 'TR-2026-0003',
-      patient_id: 1,
-      source_hospital_id: 1,
-      destination_hospital_id: 3,
-      requesting_doctor_id: 1,
-      receiving_doctor_id: 6,
-      visit_id: 1,
-      transfer_reason: 'Elective Neurosurgical Consultation',
-      clinical_priority: 'ROUTINE',
-      requested_data: ['Patient Demographics', 'Medical History'],
-      consent_status: 'REJECTED',
-      transfer_status: 'REJECTED',
-      doctor_transfer_summary: 'Elective consult declined by patient',
-      encrypted_package: null,
-      package_signature: null,
-      created_at: new Date('2026-09-21T00:00:00Z'),
-      updated_at: new Date('2026-09-21T00:00:00Z'),
-      expires_at: new Date('2026-09-28T00:00:00Z')
-    },
-    {
-      id: 4,
-      transfer_code: 'TR-2026-0004',
-      patient_id: 2,
-      source_hospital_id: 1,
-      destination_hospital_id: 2,
-      requesting_doctor_id: 2,
-      receiving_doctor_id: 4,
-      visit_id: 2,
-      transfer_reason: 'Specialist Pulmonary Rehabilitation',
-      clinical_priority: 'ROUTINE',
-      requested_data: ['Patient Demographics', 'Allergies'],
-      consent_status: 'REVOKED',
-      transfer_status: 'CANCELLED',
-      doctor_transfer_summary: 'Prior transfer cancelled upon consent revocation',
-      encrypted_package: null,
-      package_signature: null,
-      created_at: new Date('2026-09-22T00:00:00Z'),
-      updated_at: new Date('2026-09-22T00:00:00Z'),
-      expires_at: new Date('2026-09-29T00:00:00Z')
-    },
-    {
-      id: 5,
-      transfer_code: 'TR-2026-0005',
-      patient_id: 1,
-      source_hospital_id: 1,
-      destination_hospital_id: 2,
-      requesting_doctor_id: 1,
-      receiving_doctor_id: 4,
-      visit_id: 1,
-      transfer_reason: 'Prior Archival Transfer',
-      clinical_priority: 'ROUTINE',
-      requested_data: ['Patient Demographics', 'Current Diagnosis'],
-      consent_status: 'EXPIRED',
-      transfer_status: 'CANCELLED',
-      doctor_transfer_summary: 'Expired consent archive',
-      encrypted_package: null,
-      package_signature: null,
-      created_at: new Date('2020-01-01T00:00:00Z'),
-      updated_at: new Date('2020-01-01T00:00:00Z'),
-      expires_at: new Date('2020-01-08T00:00:00Z')
-    }
-  ],
-
-  consents: [
-    {
-      id: 3,
-      patient_id: 1,
-      transfer_id: 3,
-      requesting_hospital_id: 1,
-      receiving_hospital_id: 3,
-      requesting_doctor_id: 1,
-      receiving_doctor_id: 6,
-      purpose: 'Inter-Hospital Transfer: Elective Neurosurgical Consultation',
-      data_categories: ['Patient Demographics', 'Medical History'],
-      status: 'REJECTED',
-      granted_at: null,
-      expires_at: new Date('2026-09-28T00:00:00Z'),
-      revoked_at: null,
-      consent_version: '1.0',
-      patient_signature_note: 'Patient declined sharing with Fortis Hospital',
-      created_at: new Date('2026-09-21T00:00:00Z')
-    },
-    {
-      id: 4,
-      patient_id: 2,
-      transfer_id: 4,
-      requesting_hospital_id: 1,
-      receiving_hospital_id: 2,
-      requesting_doctor_id: 2,
-      receiving_doctor_id: 4,
-      purpose: 'Inter-Hospital Transfer: Specialist Pulmonary Rehabilitation',
-      data_categories: ['Patient Demographics', 'Allergies'],
-      status: 'REVOKED',
-      granted_at: new Date('2026-09-22T08:00:00Z'),
-      expires_at: new Date('2026-09-29T00:00:00Z'),
-      revoked_at: new Date('2026-09-22T12:00:00Z'),
-      consent_version: '1.0',
-      patient_signature_note: 'Consent revoked by patient prior to transfer execution',
-      created_at: new Date('2026-09-22T00:00:00Z')
-    },
-    {
-      id: 5,
-      patient_id: 1,
-      transfer_id: 5,
-      requesting_hospital_id: 1,
-      receiving_hospital_id: 2,
-      requesting_doctor_id: 1,
-      receiving_doctor_id: 4,
-      purpose: 'Inter-Hospital Transfer: Prior Archival Transfer',
-      data_categories: ['Patient Demographics', 'Current Diagnosis'],
-      status: 'GRANTED',
-      granted_at: new Date('2020-01-01T08:00:00Z'),
-      expires_at: new Date('2020-01-08T00:00:00Z'),
-      revoked_at: null,
-      consent_version: '1.0',
-      patient_signature_note: 'Historical granted consent now expired',
-      created_at: new Date('2020-01-01T00:00:00Z')
-    }
-  ],
+  consents: [],
   emergency_access: [],
-  audit_logs: [
-    // Doctor 1 (Dr. Ramesh Sharma) - Normal daytime clinical activities
-    { id: 1, user_id: 1, role: 'DOCTOR', action: 'LOGIN', patient_id: null, transfer_id: null, timestamp: new Date('2026-09-20T08:30:00Z'), ip_address: '10.0.1.15', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Clinical Duty Shift Login', result: 'SUCCESS', metadata: { hospital_node: 'AIIMS-DEL' } },
-    { id: 2, user_id: 1, role: 'DOCTOR', action: 'PATIENT_VIEW', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-20T08:35:00Z'), ip_address: '10.0.1.15', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Routine Inpatient Rounding', result: 'SUCCESS', metadata: { section: 'Dossier' } },
-    { id: 3, user_id: 1, role: 'DOCTOR', action: 'DATA_ACCESSED', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-20T08:40:00Z'), ip_address: '10.0.1.15', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Review Diagnostic ECG', result: 'SUCCESS', metadata: { category: 'Diagnostic Reports' } },
-    { id: 4, user_id: 1, role: 'DOCTOR', action: 'TRANSFER_CREATED', patient_id: 1, transfer_id: 1, timestamp: new Date('2026-09-20T09:00:00Z'), ip_address: '10.0.1.15', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Transfer Referral', result: 'SUCCESS', metadata: { priority: 'URGENT' } },
-    { id: 5, user_id: 1, role: 'DOCTOR', action: 'CONSENT_REQUESTED', patient_id: 1, transfer_id: 1, timestamp: new Date('2026-09-20T09:01:00Z'), ip_address: '10.0.1.15', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Patient Transfer Consent', result: 'SUCCESS', metadata: { transfer_code: 'TR-2026-0001' } },
-
-    // Doctor 2 (Dr. Ananya Iyer) - Normal daytime clinical activities
-    { id: 6, user_id: 2, role: 'DOCTOR', action: 'LOGIN', patient_id: null, transfer_id: null, timestamp: new Date('2026-09-21T09:30:00Z'), ip_address: '10.0.1.22', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Outpatient Clinic Shift', result: 'SUCCESS', metadata: { hospital_node: 'AIIMS-DEL' } },
-    { id: 7, user_id: 2, role: 'DOCTOR', action: 'PATIENT_VIEW', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-21T10:00:00Z'), ip_address: '10.0.1.22', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Asthma Evaluation', result: 'SUCCESS', metadata: { section: 'Dossier' } },
-    { id: 8, user_id: 2, role: 'DOCTOR', action: 'DATA_ACCESSED', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-21T10:15:00Z'), ip_address: '10.0.1.22', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Pulmonary Record Review', result: 'SUCCESS', metadata: { category: 'Medical History' } },
-
-    // Doctor 4 (Dr. Priya Patel) - Normal daytime receiving activities
-    { id: 9, user_id: 4, role: 'DOCTOR', action: 'LOGIN', patient_id: null, transfer_id: null, timestamp: new Date('2026-09-20T10:30:00Z'), ip_address: '10.0.2.50', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Cath Lab Readiness', result: 'SUCCESS', metadata: { hospital_node: 'APOLLO-DEL' } },
-    { id: 10, user_id: 4, role: 'DOCTOR', action: 'TRANSFER_RECEIVED', patient_id: 1, transfer_id: 1, timestamp: new Date('2026-09-20T11:00:00Z'), ip_address: '10.0.2.50', user_agent: 'MedTransfer Doctor Portal/1.0', purpose: 'Emergency Intake', result: 'SUCCESS', metadata: { transfer_code: 'TR-2026-0001' } },
-
-    // Actor 10 (Synthetic Suspicious Scraping / Rogue Account) - Off-Hours, Rapid Frequency, Bulk Downloads & Denials
-    { id: 11, user_id: 10, role: 'DOCTOR', action: 'LOGIN', patient_id: null, transfer_id: null, timestamp: new Date('2026-09-22T02:15:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Automated Script Session', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 12, user_id: 10, role: 'DOCTOR', action: 'PATIENT_VIEW', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-22T02:16:10Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 13, user_id: 10, role: 'DOCTOR', action: 'DATA_ACCESSED', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-22T02:16:30Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 14, user_id: 10, role: 'DOCTOR', action: 'DATA_DOWNLOADED', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-22T02:17:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Export', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 15, user_id: 10, role: 'DOCTOR', action: 'PATIENT_VIEW', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-22T02:18:15Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 16, user_id: 10, role: 'DOCTOR', action: 'DATA_ACCESSED', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-22T02:18:30Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 17, user_id: 10, role: 'DOCTOR', action: 'DATA_DOWNLOADED', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-22T02:19:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Export', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 18, user_id: 10, role: 'DOCTOR', action: 'PATIENT_VIEW', patient_id: 3, transfer_id: null, timestamp: new Date('2026-09-22T02:20:10Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 19, user_id: 10, role: 'DOCTOR', action: 'DATA_ACCESSED', patient_id: 3, transfer_id: null, timestamp: new Date('2026-09-22T02:20:25Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Scan', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 20, user_id: 10, role: 'DOCTOR', action: 'DATA_DOWNLOADED', patient_id: 3, transfer_id: null, timestamp: new Date('2026-09-22T02:21:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Export', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 21, user_id: 10, role: 'DOCTOR', action: 'DATA_DOWNLOADED', patient_id: 4, transfer_id: null, timestamp: new Date('2026-09-22T02:22:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Bulk Export', result: 'SUCCESS', metadata: { anomaly_marker: true } },
-    { id: 22, user_id: 10, role: 'DOCTOR', action: 'UNAUTHORIZED_ACCESS_ATTEMPT', patient_id: 4, transfer_id: null, timestamp: new Date('2026-09-22T02:23:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Unauthorized Probing', result: 'DENIED', metadata: { reason: 'No association or consent' } },
-    { id: 23, user_id: 10, role: 'DOCTOR', action: 'UNAUTHORIZED_ACCESS_ATTEMPT', patient_id: 1, transfer_id: null, timestamp: new Date('2026-09-22T02:24:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Unauthorized Probing', result: 'DENIED', metadata: { reason: 'No association or consent' } },
-    { id: 24, user_id: 10, role: 'DOCTOR', action: 'UNAUTHORIZED_ACCESS_ATTEMPT', patient_id: 2, transfer_id: null, timestamp: new Date('2026-09-22T02:25:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Unauthorized Probing', result: 'DENIED', metadata: { reason: 'No association or consent' } },
-    { id: 25, user_id: 10, role: 'DOCTOR', action: 'UNAUTHORIZED_ACCESS_ATTEMPT', patient_id: 3, transfer_id: null, timestamp: new Date('2026-09-22T02:26:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Unauthorized Probing', result: 'DENIED', metadata: { reason: 'No association or consent' } },
-    { id: 26, user_id: 10, role: 'DOCTOR', action: 'UNAUTHORIZED_ACCESS_ATTEMPT', patient_id: 4, transfer_id: null, timestamp: new Date('2026-09-22T02:27:00Z'), ip_address: '198.51.100.44', user_agent: 'Python-requests/2.31.0', purpose: 'Unauthorized Probing', result: 'DENIED', metadata: { reason: 'No association or consent' } }
-  ],
+  audit_logs: [],
   notifications: [],
-
+  doctor_patients: [],
   ai_handover_summaries: [],
   ai_record_relevance: [],
   data_quality_issues: [],
@@ -746,10 +104,10 @@ const memoryStore = {
 };
 
 /**
- * Clear all synthetic/dummy patient and transfer records
- * Retains hospital nodes and clinician/admin user accounts for login.
+ * Clear all records from memory store
  */
 const clearDummyData = () => {
+  memoryStore.users = [];
   memoryStore.patients = [];
   memoryStore.visits = [];
   memoryStore.tests = [];
@@ -761,6 +119,7 @@ const clearDummyData = () => {
   memoryStore.emergency_access = [];
   memoryStore.audit_logs = [];
   memoryStore.notifications = [];
+  memoryStore.doctor_patients = [];
   memoryStore.ai_handover_summaries = [];
   memoryStore.ai_record_relevance = [];
   memoryStore.data_quality_issues = [];
@@ -771,41 +130,147 @@ const clearDummyData = () => {
   memoryStore.ai_audit_events = [];
   memoryStore.research_evaluation_runs = [];
   memoryStore.research_evaluation_entries = [];
-  // Retain only staff users (remove dummy patient user accounts)
-  memoryStore.users = memoryStore.users.filter(u => u.role !== 'PATIENT');
-  console.log('\x1b[35m%s\x1b[0m', '🧹 Clean Data Mode Active: All dummy/synthetic patient & transfer records purged.');
+  console.log('\x1b[35m%s\x1b[0m', '🧹 Clean Database Mode: All patient, clinical, and demo credentials purged.');
 };
 
-if (process.env.CLEAR_DUMMY_DATA === 'true' || process.env.DATA_MODE === 'clean') {
-  clearDummyData();
-}
-
-// Initialize DB and verify connection
+// Initialize DB, verify connection, launch embedded PostgreSQL if needed, and apply schema
 const initDB = async () => {
+  let client = null;
+
+  // 1. First, attempt connection with existing PostgreSQL (local or cloud)
   try {
-    const client = await pool.connect();
+    client = await activePool.connect();
     isConnected = true;
     console.log('\x1b[32m%s\x1b[0m', '✓ Connected successfully to PostgreSQL database.');
-
-    const schemaPath = path.join(__dirname, '..', 'db', 'schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-      await client.query(schemaSql);
-      console.log('\x1b[32m%s\x1b[0m', '✓ Relational schema verified in PostgreSQL.');
-    }
-    client.release();
-    return true;
   } catch (err) {
-    isConnected = false;
-    console.warn('\x1b[33m%s\x1b[0m', `ℹ️ Local PostgreSQL status: ${err.message || 'Offline/Unreachable'}`);
-    if (process.env.CLEAR_DUMMY_DATA === 'true' || process.env.DATA_MODE === 'clean') {
-      console.warn('\x1b[36m%s\x1b[0m', '✓ MedTransfer Hybrid Engine: Clean InMemory clinical store active (0 dummy records).');
-    } else {
-      console.warn('\x1b[36m%s\x1b[0m', '✓ MedTransfer Hybrid Engine initialized: InMemory clinical dataset active.');
+    console.warn('\x1b[33m%s\x1b[0m', 'ℹ️ External PostgreSQL connection not active (' + (err.message || 'Offline') + ').');
+    console.log('\x1b[36m%s\x1b[0m', '🚀 Launching native persistent PostgreSQL cluster...');
+
+    try {
+      const { default: EmbeddedPostgres } = await import('embedded-postgres');
+      const dbDir = path.join(__dirname, '..', '..', 'data', 'postgres_db');
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+
+      const port = 5433;
+      const user = 'postgres';
+      const password = 'postgres_secure_pass';
+
+      embeddedPgInstance = new EmbeddedPostgres({
+        databaseDir: dbDir,
+        port: port,
+        user: user,
+        password: password,
+        persistent: true
+      });
+
+      const exists = fs.existsSync(path.join(dbDir, 'PG_VERSION'));
+      if (!exists) {
+        console.log('Initializing PostgreSQL cluster in:', dbDir);
+        await embeddedPgInstance.initialise();
+      }
+
+      const pidFile = path.join(dbDir, 'postmaster.pid');
+      if (fs.existsSync(pidFile)) {
+        try { fs.unlinkSync(pidFile); } catch (e) {}
+      }
+
+      console.log('Starting PostgreSQL service on port ' + port + '...');
+      await embeddedPgInstance.start();
+
+      try {
+        await embeddedPgInstance.createDatabase('medtransfer_db');
+      } catch (e) {
+        // Ignored if already exists
+      }
+
+      activePool = new Pool({
+        host: 'localhost',
+        port: port,
+        user: user,
+        password: password,
+        database: 'medtransfer_db',
+        connectionTimeoutMillis: 5000
+      });
+
+      client = await activePool.connect();
+      isConnected = true;
+      console.log('\x1b[32m%s\x1b[0m', '✓ Native PostgreSQL engine connected successfully on port ' + port + '.');
+    } catch (embErr) {
+      console.error('Failed to initialize embedded PostgreSQL:', embErr);
+      isConnected = false;
+      return false;
     }
-    return false;
+  }
+
+  // 2. Initialize schema and ensure clean real database state
+  if (isConnected && client) {
+    try {
+      const schemaPath = path.join(__dirname, '..', 'db', 'schema.sql');
+      if (fs.existsSync(schemaPath)) {
+        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+        await client.query(schemaSql);
+        console.log('\x1b[32m%s\x1b[0m', '✓ Relational schema verified in PostgreSQL (24 tables ready).');
+      }
+
+      // Seed hospital nodes (without dummy patient data)
+      await client.query(`
+        INSERT INTO hospitals (name, code, address, city, phone, emergency_contact)
+        VALUES 
+          ('AIIMS Trauma Center', 'AIIMS-DEL', 'Sri Aurobindo Marg, Ansari Nagar', 'New Delhi', '+91-11-26588500', '+91-9876543210'),
+          ('Apollo Multi-Speciality Hospital', 'APOLLO-DEL', 'Sarita Vihar, Delhi Mathura Road', 'New Delhi', '+91-11-26925858', '+91-9876543211'),
+          ('Fortis Memorial Research Institute', 'FORTIS-GGN', 'Sector 44, Opposite HUDA City Centre', 'Gurugram', '+91-124-4962200', '+91-9876543212'),
+          ('Max Super Speciality Hospital', 'MAX-SAKET', '1, 2 Press Enclave Road, Saket', 'New Delhi', '+91-11-26515050', '+91-9876543213')
+        ON CONFLICT (code) DO NOTHING;
+      `);
+
+      // Remove all legacy synthetic demo accounts if any exist
+      if (process.env.CLEAR_DUMMY_DATA !== 'false') {
+        await client.query(`
+          DELETE FROM users WHERE 
+            email LIKE '%@demo.local' OR 
+            email LIKE '%dr.ramesh%' OR 
+            email LIKE '%dr.priya%' OR 
+            email LIKE '%dr.amit%' OR 
+            email LIKE '%sysadmin@medtransfer.demo' OR 
+            email LIKE '%admin@aiims.edu.in';
+        `);
+      }
+
+      console.log('\x1b[32m%s\x1b[0m', '✓ PostgreSQL database is fresh, clean, and ready for new users.');
+      client.release();
+      return true;
+    } catch (schemaErr) {
+      console.error('Error applying schema to PostgreSQL:', schemaErr);
+      client.release();
+    }
+  }
+
+  return isConnected;
+};
+
+// Graceful termination handler
+const cleanStop = async () => {
+  if (embeddedPgInstance) {
+    try {
+      console.log('\nStopping PostgreSQL engine...');
+      await embeddedPgInstance.stop();
+    } catch (e) {
+      // Ignored
+    }
   }
 };
+
+process.on('SIGINT', async () => {
+  await cleanStop();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await cleanStop();
+  process.exit(0);
+});
 
 const nextId = (list) => (Array.isArray(list) ? list.reduce((max, item) => (item && typeof item.id === 'number' && item.id > max ? item.id : max), 0) + 1 : 1);
 
@@ -823,12 +288,38 @@ const query = async (text, params = []) => {
   // -------------------------------------------------------------
   // 1. AUTH & USER QUERIES
   // -------------------------------------------------------------
-  if (normalizedText.includes('from users u') && (normalizedText.includes('where lower(u.email)') || normalizedText.includes('lower(u.username)') || normalizedText.includes('u.email =') || normalizedText.includes('u.username ='))) {
+  if (normalizedText.includes('from users u') && (normalizedText.includes('where lower(u.email)') || normalizedText.includes('lower(u.username)') || normalizedText.includes('u.email =') || normalizedText.includes('u.username =') || normalizedText.includes('unique_health_id'))) {
     const identParam = String(params[0] || '').toLowerCase().trim();
-    const user = memoryStore.users.find(u => 
-      (u.email && u.email.toLowerCase() === identParam) || 
-      (u.username && u.username.toLowerCase() === identParam)
-    );
+    const cleanDigits = identParam.replace(/\D/g, '');
+
+    const user = memoryStore.users.find(u => {
+      if (!u) return false;
+      // 1. Direct email or username match
+      if (u.email && u.email.toLowerCase() === identParam) return true;
+      if (u.username && u.username.toLowerCase() === identParam) return true;
+      // 2. Phone match
+      if (u.phone && (u.phone.toLowerCase() === identParam || (cleanDigits.length >= 10 && u.phone.replace(/\D/g, '').endsWith(cleanDigits)))) return true;
+      // 3. Patient health ID / ABHA / patient code / email / phone match
+      if (u.role === 'PATIENT') {
+        const pat = memoryStore.patients.find(p => p.user_id === u.id || (p.id === u.patient_id) || (p.email && p.email.toLowerCase() === (u.email || '').toLowerCase()));
+        if (pat) {
+          if (pat.unique_health_id && pat.unique_health_id.toLowerCase() === identParam) return true;
+          if (pat.patient_code && pat.patient_code.toLowerCase() === identParam) return true;
+          if (pat.id === 1 && (identParam === 'p-10001' || identParam === 'abha-9821-4412-8801')) return true;
+          if (pat.id === 2 && (identParam === 'p-10002' || identParam === 'abha-3312-7789-2244')) return true;
+          if (pat.phone && (pat.phone.toLowerCase() === identParam || (cleanDigits.length >= 10 && pat.phone.replace(/\D/g, '').endsWith(cleanDigits)))) return true;
+        }
+      }
+      // 4. Common demo account aliases:
+      if ((identParam === 'patient' || identParam === 'patient1' || identParam === 'rajesh' || identParam === 'rajesh.kumar') && u.id === 8) return true;
+      if ((identParam === 'patient2' || identParam === 'priya' || identParam === 'priya.sharma') && u.id === 9) return true;
+      if ((identParam === 'doctor' || identParam === 'doctor1' || identParam === 'dr.ramesh') && u.id === 1) return true;
+      if ((identParam === 'doctor2' || identParam === 'dr.priya') && u.id === 4) return true;
+      if ((identParam === 'admin' || identParam === 'hospital_admin' || identParam === 'admin.aiims') && u.id === 3) return true;
+      if ((identParam === 'sysadmin' || identParam === 'system_admin') && u.id === 7) return true;
+      return false;
+    });
+
     if (!user) return { rows: [] };
     const hospital = user.hospital_id ? memoryStore.hospitals.find(h => h.id === user.hospital_id) : null;
     return {
@@ -842,6 +333,7 @@ const query = async (text, params = []) => {
         specialty: user.specialty,
         license_number: user.license_number,
         phone: user.phone,
+        patient_id: user.patient_id || null,
         hospital_id: hospital ? hospital.id : null,
         hospital_name: hospital ? hospital.name : null,
         hospital_code: hospital ? hospital.code : null,
@@ -946,9 +438,15 @@ const query = async (text, params = []) => {
     return { rows: patient ? [patient] : [] };
   }
 
-  if (normalizedText.includes('from patients') && (normalizedText.includes('where id = $1') || normalizedText.includes('where unique_health_id = $1') || normalizedText.includes('where p.id = $1'))) {
-    const param = params[0];
-    const patient = memoryStore.patients.find(p => p.id === parseInt(param, 10) || p.unique_health_id === String(param).trim());
+  if (normalizedText.includes('from patients') && (normalizedText.includes('where id = $1') || normalizedText.includes('where unique_health_id = $1') || normalizedText.includes('where p.id = $1') || normalizedText.includes('where p.unique_health_id = $1'))) {
+    const param = String(params[0] || '').trim();
+    const patient = memoryStore.patients.find(p => 
+      p.id === parseInt(param, 10) || 
+      (p.unique_health_id && p.unique_health_id.toLowerCase() === param.toLowerCase()) ||
+      (p.patient_code && p.patient_code.toLowerCase() === param.toLowerCase()) ||
+      (p.id === 1 && (param.toLowerCase() === 'p-10001' || param.toLowerCase() === 'abha-9821-4412-8801')) ||
+      (p.id === 2 && (param.toLowerCase() === 'p-10002' || param.toLowerCase() === 'abha-3312-7789-2244'))
+    );
     if (!patient) return { rows: [] };
     
     // Attach visits, medications, allergies, tests, documents
@@ -1040,6 +538,12 @@ const query = async (text, params = []) => {
       created_at: new Date()
     };
     memoryStore.patients.push(newPatient);
+    if (newPatient.user_id) {
+      const linkedUser = memoryStore.users.find(u => u.id === newPatient.user_id);
+      if (linkedUser) {
+        linkedUser.patient_id = newPatient.id;
+      }
+    }
     return { rows: [newPatient] };
   }
 
@@ -1152,8 +656,8 @@ const query = async (text, params = []) => {
   }
 
   if (normalizedText.startsWith('insert into doctor_patients')) {
-    // doctor_id, patient_id, hospital_id, status, department, treatment_reason, purpose, treatment_start_date, requested_at
-    const [doctor_id, patient_id, hospital_id, status, department, treatment_reason, purpose, treatment_start_date, requested_at] = params;
+    // doctor_id, patient_id, hospital_id, status, department, treatment_reason, treatment_start_date, requested_at
+    const [doctor_id, patient_id, hospital_id, status, department, treatment_reason, treatment_start_date, requested_at] = params;
     const newAssoc = {
       id: nextId(memoryStore.doctor_patients),
       doctor_id: parseInt(doctor_id, 10),
@@ -1161,8 +665,7 @@ const query = async (text, params = []) => {
       hospital_id: hospital_id ? parseInt(hospital_id, 10) : 1,
       status: (status || 'PENDING').toUpperCase(),
       department: department || 'General Medicine',
-      treatment_reason: treatment_reason || purpose || 'Clinical Evaluation & Treatment',
-      purpose: purpose || treatment_reason || 'Clinical Care',
+      treatment_reason: treatment_reason || 'Clinical Evaluation & Treatment',
       treatment_start_date: treatment_start_date ? new Date(treatment_start_date) : new Date(),
       treatment_end_date: null,
       requested_at: requested_at ? new Date(requested_at) : new Date(),

@@ -39,28 +39,28 @@ async function seed() {
     const patientPass = await bcrypt.hash('patient123', 10);
 
     const userRes = await client.query(`
-      INSERT INTO users (hospital_id, name, email, password_hash, role, specialty, license_number)
+      INSERT INTO users (hospital_id, name, email, username, password_hash, role, specialty, license_number)
       VALUES 
         -- AIIMS Hospital Staff
-        ($1, 'Dr. Ramesh Sharma', 'dr.ramesh@aiims.edu.in', $4, 'DOCTOR', 'Emergency Medicine & Trauma', 'MCI-2015-8849'),
-        ($1, 'Dr. Ananya Iyer', 'dr.ananya@aiims.edu.in', $4, 'DOCTOR', 'Critical Care & Pulmonology', 'MCI-2018-4521'),
-        ($1, 'Rajesh Verma', 'admin@aiims.edu.in', $5, 'HOSPITAL_ADMIN', 'Hospital Operations Lead', 'ADM-DEL-01'),
+        ($1, 'Dr. Ramesh Sharma', 'dr.ramesh@aiims.edu.in', 'dr.ramesh', $4, 'DOCTOR', 'Emergency Medicine & Trauma', 'MCI-2015-8849'),
+        ($1, 'Dr. Ananya Iyer', 'dr.ananya@aiims.edu.in', 'dr.ananya', $4, 'DOCTOR', 'Critical Care & Pulmonology', 'MCI-2018-4521'),
+        ($1, 'Rajesh Verma', 'admin@aiims.edu.in', 'admin.aiims', $5, 'HOSPITAL_ADMIN', 'Hospital Operations Lead', 'ADM-DEL-01'),
 
         -- Apollo Hospital Staff
-        ($2, 'Dr. Priya Patel', 'dr.priya@apollo.com', $4, 'DOCTOR', 'Interventional Cardiology', 'MCI-2014-9912'),
-        ($2, 'Sunita Rao', 'admin@apollo.com', $5, 'HOSPITAL_ADMIN', 'Patient Transfer Coordinator', 'ADM-APL-02'),
+        ($2, 'Dr. Priya Patel', 'dr.priya@apollo.com', 'dr.priya', $4, 'DOCTOR', 'Interventional Cardiology', 'MCI-2014-9912'),
+        ($2, 'Sunita Rao', 'admin@apollo.com', 'admin.apollo', $5, 'HOSPITAL_ADMIN', 'Patient Transfer Coordinator', 'ADM-APL-02'),
 
         -- Fortis Hospital Staff
-        ($3, 'Dr. Amit Sengupta', 'dr.amit@fortis.in', $4, 'DOCTOR', 'Neurosurgery & Trauma', 'MCI-2012-3341'),
+        ($3, 'Dr. Amit Sengupta', 'dr.amit@fortis.in', 'dr.amit', $4, 'DOCTOR', 'Neurosurgery & Trauma', 'MCI-2012-3341'),
 
         -- System Admin
-        (NULL, 'System Administrator', 'sysadmin@medtransfer.gov.in', $5, 'SYSTEM_ADMIN', 'National Exchange Security', 'SYS-ADMIN-01'),
+        (NULL, 'System Administrator', 'sysadmin@medtransfer.gov.in', 'sysadmin', $5, 'SYSTEM_ADMIN', 'National Exchange Security', 'SYS-ADMIN-01'),
 
         -- Demo Patients
-        (NULL, 'Rajesh Kumar', 'patient@demo.local', $6, 'PATIENT', NULL, NULL),
-        (NULL, 'Priya Sharma', 'patient.anjali@demo.local', $6, 'PATIENT', NULL, NULL)
-      ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
-      RETURNING id, name, email, role;
+        (NULL, 'Rajesh Kumar', 'patient@demo.local', 'patient.rajesh', $6, 'PATIENT', NULL, NULL),
+        (NULL, 'Priya Sharma', 'patient.anjali@demo.local', 'patient.anjali', $6, 'PATIENT', NULL, NULL)
+      ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, username = EXCLUDED.username
+      RETURNING id, name, email, username, role;
     `, [aiimsId, apolloId, fortisId, doctorPass, adminPass, patientPass]);
 
     const users = userRes.rows;

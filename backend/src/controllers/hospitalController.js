@@ -43,11 +43,45 @@ const getHospitalById = async (req, res) => {
     }
     return res.status(200).json({ success: true, data: result.rows[0] });
   } catch (err) {
+    console.error('Error fetching hospital by id:', err);
     return res.status(500).json({ success: false, message: 'Failed to retrieve hospital.' });
+  }
+};
+
+/**
+ * POST /api/hospitals
+ * Create/register a new hospital node
+ */
+const createHospital = async (req, res) => {
+  const { name, code, address, city, phone, emergency_contact } = req.body;
+  if (!name || !code) {
+    return res.status(400).json({ success: false, message: 'Hospital name and code are required.' });
+  }
+
+  try {
+    const sql = `
+      INSERT INTO hospitals (name, code, address, city, phone, emergency_contact)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+      RETURNING *
+    `;
+    const result = await query(sql, [
+      name.trim(),
+      code.trim().toUpperCase(),
+      address || 'Main Campus',
+      city || 'New Delhi',
+      phone || '+91-11-00000000',
+      emergency_contact || '+91-9999999999'
+    ]);
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('Error creating hospital:', err);
+    return res.status(500).json({ success: false, message: 'Failed to create hospital facility.' });
   }
 };
 
 module.exports = {
   getAllHospitals,
-  getHospitalById
+  getHospitalById,
+  createHospital
 };

@@ -1,4 +1,4 @@
-const { query, memoryStore } = require('../config/db');
+const { query } = require('../config/db');
 
 /**
  * GET /api/notifications

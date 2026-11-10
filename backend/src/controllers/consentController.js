@@ -19,10 +19,6 @@ async function patientIdForUser(user) {
   if (user.patient_id) return Number(user.patient_id);
   const byUser = (await query('SELECT id FROM patients WHERE user_id = $1', [user.id])).rows[0]?.id;
   if (byUser) return Number(byUser);
-  if (user.email) {
-    const byEmail = (await query('SELECT id FROM patients WHERE LOWER(email) = LOWER($1)', [user.email])).rows[0]?.id;
-    if (byEmail) return Number(byEmail);
-  }
   return null;
 }
 

@@ -1,0 +1,31 @@
+services:
+  # Backend API Web Service
+  - type: web
+    name: medtransfer-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: HMAC_SECRET
+        generateValue: true
+
+  # Frontend Static Site
+  - type: static_site
+    name: medtransfer-frontend
+    buildCommand: npm install && npm run build
+    publishPath: dist
+    rootDir: frontend
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

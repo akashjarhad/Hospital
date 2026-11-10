@@ -2,29 +2,19 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   Building2, ShieldCheck, LogOut, Stethoscope, 
-  Activity, Bell, User, Zap, ChevronDown, ShieldAlert, UserCheck 
+  Activity, Bell, User, Database
 } from 'lucide-react';
 import { NotificationsModal } from './NotificationsModal';
 
 export const Navbar = ({ onOpenConsentCenter, onOpenSecurityDashboard }) => {
-  const { user, hospital, patient, logout, switchAccount, unreadCount } = useAuth();
+  const { user, hospital, patient, logout, unreadCount } = useAuth();
   const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
 
   if (!user) return null;
 
   const role = (user.role || '').toUpperCase();
   const isDoctor = role === 'DOCTOR';
   const isPatient = role === 'PATIENT';
-  const isAdmin = role === 'HOSPITAL_ADMIN' || role === 'SYSTEM_ADMIN';
-
-  const demoAccounts = [
-    { label: 'Dr. Ramesh Sharma (AIIMS Trauma Center)', email: 'dr.ramesh@aiims.edu.in', pass: 'doctor123', role: 'DOCTOR', icon: <Stethoscope className="h-3.5 w-3.5 text-emerald-500" /> },
-    { label: 'Dr. Priya Patel (Apollo Hospital)', email: 'dr.priya@apollo.com', pass: 'doctor123', role: 'DOCTOR', icon: <Stethoscope className="h-3.5 w-3.5 text-emerald-500" /> },
-    { label: 'Dr. Amit Sengupta (Fortis Hospital)', email: 'dr.amit@fortis.in', pass: 'doctor123', role: 'DOCTOR', icon: <ShieldAlert className="h-3.5 w-3.5 text-red-500" /> },
-    { label: 'AIIMS Hospital Admin', email: 'admin@aiims.edu.in', pass: 'admin123', role: 'HOSPITAL_ADMIN', icon: <ShieldCheck className="h-3.5 w-3.5 text-purple-500" /> },
-    { label: 'System Security Admin', email: 'sysadmin@medtransfer.demo', pass: 'sysadmin123', role: 'SYSTEM_ADMIN', icon: <ShieldCheck className="h-3.5 w-3.5 text-amber-500" /> }
-  ];
 
   return (
     <>
@@ -55,6 +45,13 @@ export const Navbar = ({ onOpenConsentCenter, onOpenSecurityDashboard }) => {
             {/* Middle / Right Actions */}
             <div className="flex items-center gap-2 sm:gap-3">
               
+              {/* PostgreSQL Engine Active Status Badge */}
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
+                <Database className="h-3.5 w-3.5 text-emerald-600" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>PostgreSQL Live</span>
+              </div>
+
               {/* Scoped Hospital Node Indicator (for clinical staff) */}
               {hospital && (
                 <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
@@ -80,54 +77,11 @@ export const Navbar = ({ onOpenConsentCenter, onOpenSecurityDashboard }) => {
                       Patient Identity
                     </div>
                     <div className="font-mono font-bold text-brand-900 mt-0.5">
-                      {user.unique_health_id || 'P-10001'}
+                      {user.unique_health_id || (patient && patient.unique_health_id) || 'ABHA-VERIFIED'}
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* Quick Viva Role Switcher Dropdown */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Switch demo account for evaluation"
-                >
-                  <Zap className="h-3.5 w-3.5 text-amber-600 fill-amber-500" />
-                  <span className="hidden lg:inline">Viva Switcher</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-amber-700" />
-                </button>
-
-                {isAccountDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-                    <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-100 mb-1">
-                      Quick Demo Role Switcher
-                    </div>
-                    <div className="space-y-1">
-                      {demoAccounts.map((acc, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            switchAccount(acc.email, acc.pass);
-                            setIsAccountDropdownOpen(false);
-                          }}
-                          className={`w-full text-left p-2 rounded-xl text-xs flex items-center gap-2.5 transition-all cursor-pointer ${
-                            user.email === acc.email
-                              ? 'bg-brand-50 text-brand-900 font-bold border border-brand-200'
-                              : 'hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          {acc.icon}
-                          <div className="truncate flex-1">
-                            <div className="truncate">{acc.label}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">{acc.email}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
 
               {/* Notifications Bell */}
               <button
